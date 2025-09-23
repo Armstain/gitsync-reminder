@@ -1,0 +1,25 @@
+{
+  "name": "git-pull-reminder",
+  "displayName": "Git Pull Reminder",
+  "description": "Reminds you to git pull when remote has new commits.",
+  "version": "1.0.0",
+  "publisher": "your-name",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "activationEvents": ["*"],
+  "main": "./extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "gitPullReminder.checkCommits",
+        "title": "Check for Remote Commits"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "echo Prepublish script",
+    "test": "echo Test script"
+  },
+  "devDependencies": {}
+}
