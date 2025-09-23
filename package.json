@@ -1,25 +1,78 @@
 {
   "name": "git-pull-reminder",
   "displayName": "Git Pull Reminder",
-  "description": "Reminds you to git pull when remote has new commits.",
-  "version": "1.0.0",
+  "description": "Smart Git pull reminders with configurable intervals and status bar integration",
+  "version": "1.1.0",
   "publisher": "your-name",
   "engines": {
     "vscode": "^1.80.0"
   },
-  "activationEvents": ["*"],
+  "categories": ["Other"],
+  "keywords": ["git", "pull", "reminder", "sync", "version control"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/git-pull-reminder.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/git-pull-reminder/issues"
+  },
+  "homepage": "https://github.com/your-username/git-pull-reminder#readme",
+  "activationEvents": ["onStartupFinished"],
   "main": "./extension.js",
   "contributes": {
     "commands": [
       {
         "command": "gitPullReminder.checkCommits",
-        "title": "Check for Remote Commits"
+        "title": "Git Pull Reminder: Check for Remote Commits",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "gitPullReminder.pullNow",
+        "title": "Git Pull Reminder: Pull Now",
+        "icon": "$(repo-pull)"
+      },
+      {
+        "command": "gitPullReminder.toggleAutoCheck",
+        "title": "Git Pull Reminder: Toggle Auto Check",
+        "icon": "$(watch)"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Git Pull Reminder",
+      "properties": {
+        "gitPullReminder.checkInterval": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 60,
+          "description": "Check interval in minutes (1-60)"
+        },
+        "gitPullReminder.autoCheck": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable automatic checking for remote commits"
+        },
+        "gitPullReminder.showStatusBar": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show status in status bar"
+        },
+        "gitPullReminder.notificationLevel": {
+          "type": "string",
+          "enum": ["info", "warning", "error"],
+          "default": "info",
+          "description": "Notification level for pull reminders"
+        }
+      }
+    }
   },
   "scripts": {
-    "vscode:prepublish": "echo Prepublish script",
-    "test": "echo Test script"
+    "vscode:prepublish": "npm run compile",
+    "compile": "echo 'Compilation complete'",
+    "package": "vsce package",
+    "test": "echo 'Test script'"
   },
-  "devDependencies": {}
+  "devDependencies": {
+    "@vscode/vsce": "^2.22.0"
+  }
 }
