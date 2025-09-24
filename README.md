@@ -10,6 +10,11 @@ A smart VS Code extension that helps you stay synchronized with your Git reposit
 - 🎯 **Smart Notifications**: Configurable notification levels (info, warning, error)
 - 🚀 **One-Click Actions**: Pull changes or view diffs with a single click
 - 🎛️ **Toggle Control**: Enable/disable auto-checking as needed
+- 🌿 **Branch-Specific Monitoring**: Only watch specific branches with auto-detection of remote default
+- 🧠 **Smart Timing**: Pauses checks when you're actively coding to avoid interruptions
+- ⚠️ **Conflict Detection**: Warns about potential merge conflicts before pulling
+- 📦 **Stash & Pull**: Automatically stash uncommitted changes when conflicts are detected
+- 🔍 **Auto-Discovery**: Automatically detects and includes remote default branch in watch list
 
 ## Usage
 
@@ -39,6 +44,10 @@ Open VS Code settings and search for "Git Pull Reminder" to configure:
 | `gitPullReminder.autoCheck` | Enable automatic checking | true |
 | `gitPullReminder.showStatusBar` | Show status in status bar | true |
 | `gitPullReminder.notificationLevel` | Notification level (info/warning/error) | info |
+| `gitPullReminder.watchedBranches` | Array of branch names to monitor (auto-detects remote default, empty = all branches) | ["main", "master", "develop"] |
+| `gitPullReminder.smartTiming` | Pause checks when actively typing | true |
+| `gitPullReminder.conflictDetection` | Check for potential merge conflicts | true |
+| `gitPullReminder.gitTimeout` | Git command timeout in seconds (5-120) | 30 |
 
 ## Requirements
 

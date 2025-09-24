@@ -4,9 +4,25 @@ const { exec } = require("child_process");
 let statusBarItem;
 let autoCheckInterval;
 let isAutoCheckEnabled = true;
+let lastActivityTime = Date.now();
+let isUserActive = false;
 
 function getConfig() {
   return vscode.workspace.getConfiguration('gitPullReminder');
+}
+
+function execGitCommand(command, workspacePath, callback) {
+  const config = getConfig();
+  const timeout = config.get('gitTimeout', 30) * 1000; // Convert to milliseconds
+  
+  const options = {
+    cwd: workspacePath,
+    timeout: timeout,
+    maxBuffer: 1024 * 1024, // 1MB buffer
+    encoding: 'utf8'
+  };
+  
+  exec(command, options, callback);
 }
 
 function updateStatusBar(text, tooltip = '', color = '') {
@@ -44,12 +60,22 @@ function checkForRemoteCommits(workspacePath, isManual = false) {
     return;
   }
 
+  const config = getConfig();
+  
+  // Smart timing - skip if user is actively typing (unless manual)
+  if (!isManual && config.get('smartTiming', true) && isUserActive) {
+    const timeSinceActivity = Date.now() - lastActivityTime;
+    if (timeSinceActivity < 30000) { // Skip if activity in last 30 seconds
+      return;
+    }
+  }
+
   if (isManual) {
     updateStatusBar("$(sync~spin) Checking...", "Checking for remote commits");
   }
 
   // First check if it's a git repository
-  exec("git rev-parse --git-dir", { cwd: workspacePath }, (gitErr) => {
+  execGitCommand("git rev-parse --git-dir", workspacePath, (gitErr) => {
     if (gitErr) {
       if (isManual) {
         showNotification("This folder is not a Git repository", 'error');
@@ -59,7 +85,7 @@ function checkForRemoteCommits(workspacePath, isManual = false) {
     }
 
     // Check if there's a remote configured
-    exec("git remote", { cwd: workspacePath }, (remoteErr, remoteStdout) => {
+    execGitCommand("git remote", workspacePath, (remoteErr, remoteStdout) => {
       if (remoteErr || !remoteStdout.trim()) {
         if (isManual) {
           showNotification("No Git remote configured", 'warning');
@@ -68,7 +94,7 @@ function checkForRemoteCommits(workspacePath, isManual = false) {
         return;
       }
 
-      exec("git fetch", { cwd: workspacePath }, (fetchErr) => {
+      execGitCommand("git fetch", workspacePath, (fetchErr) => {
         if (fetchErr) {
           if (isManual) {
             showNotification("Failed to fetch from remote. Check your connection.", 'error');
@@ -77,38 +103,196 @@ function checkForRemoteCommits(workspacePath, isManual = false) {
           return;
         }
 
-        exec("git rev-list HEAD..@{u} --count", { cwd: workspacePath }, (err, stdout) => {
-          if (err) {
+        // Check if current branch should be watched
+        execGitCommand("git branch --show-current", workspacePath, (branchErr, branchStdout) => {
+          if (branchErr) {
             if (isManual) {
-              showNotification("Unable to check remote commits. Make sure you have an upstream branch.", 'warning');
-              updateStatusBar("$(warning) No upstream", "No upstream branch configured", 'yellow');
+              showNotification("Unable to determine current branch", 'warning');
             }
             return;
           }
 
-          const count = parseInt(stdout.trim(), 10);
-          if (count > 0) {
-            const message = `🚨 Remote has ${count} new commit${count > 1 ? 's' : ''}. Pull now?`;
-            updateStatusBar(`$(arrow-down) ${count} commit${count > 1 ? 's' : ''}`, `${count} new commit${count > 1 ? 's' : ''} available`, 'orange');
-            
-            vscode.window.showInformationMessage(
-              message,
-              "Pull Now", "View Changes", "Later"
-            ).then(selection => {
-              if (selection === "Pull Now") {
-                pullChanges(workspacePath);
-              } else if (selection === "View Changes") {
-                vscode.commands.executeCommand('git.viewChanges');
+          const currentBranch = branchStdout.trim();
+          let watchedBranches = config.get('watchedBranches', ['main', 'master', 'develop']);
+          
+          // Auto-detect remote default branch and add to watched list if using defaults
+          if (JSON.stringify(watchedBranches) === JSON.stringify(['main', 'master', 'develop'])) {
+            // Try to get remote default branch (cross-platform approach)
+            execGitCommand("git symbolic-ref refs/remotes/origin/HEAD", workspacePath, (symbolicErr, symbolicStdout) => {
+              if (!symbolicErr && symbolicStdout.trim()) {
+                const remoteDefault = symbolicStdout.trim().replace('refs/remotes/origin/', '');
+                if (remoteDefault && !watchedBranches.includes(remoteDefault)) {
+                  watchedBranches = [...watchedBranches, remoteDefault];
+                  if (isManual) {
+                    showNotification(`Auto-detected remote default branch: '${remoteDefault}'`, 'info');
+                  }
+                }
+                checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, isManual);
+              } else {
+                // Fallback: try git remote show origin
+                execGitCommand("git remote show origin", workspacePath, (remoteShowErr, remoteShowStdout) => {
+                  if (!remoteShowErr && remoteShowStdout) {
+                    const headBranchMatch = remoteShowStdout.match(/HEAD branch:\s*(\S+)/);
+                    if (headBranchMatch && headBranchMatch[1] && !watchedBranches.includes(headBranchMatch[1])) {
+                      watchedBranches = [...watchedBranches, headBranchMatch[1]];
+                      if (isManual) {
+                        showNotification(`Auto-detected remote default branch: '${headBranchMatch[1]}'`, 'info');
+                      }
+                    }
+                  }
+                  checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, isManual);
+                });
               }
             });
           } else {
-            if (isManual) {
-              showNotification("✅ Repository is up to date!");
-            }
-            updateStatusBar("$(check) Up to date", "Repository is up to date", 'green');
+            checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, isManual);
           }
         });
       });
+    });
+  });
+}
+
+function checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, isManual) {
+  const config = getConfig();
+  
+  if (watchedBranches.length > 0 && !watchedBranches.includes(currentBranch)) {
+    if (isManual) {
+      showNotification(`Branch '${currentBranch}' is not being watched. Watched branches: ${watchedBranches.join(', ')}`, 'info');
+      updateStatusBar("$(info) Branch not watched", `Branch '${currentBranch}' is not in watched list`);
+    }
+    return;
+  }
+
+  exec("git rev-list HEAD..@{u} --count", { cwd: workspacePath }, (err, stdout) => {
+    if (err) {
+      if (isManual) {
+        showNotification("Unable to check remote commits. Make sure you have an upstream branch.", 'warning');
+        updateStatusBar("$(warning) No upstream", "No upstream branch configured", 'yellow');
+      }
+      return;
+    }
+
+    const count = parseInt(stdout.trim(), 10);
+    if (count > 0) {
+      // Conflict detection before suggesting pull
+      if (config.get('conflictDetection', true)) {
+        checkForPotentialConflicts(workspacePath, count, isManual);
+      } else {
+        showPullNotification(count, workspacePath);
+      }
+    } else {
+      if (isManual) {
+        showNotification("✅ Repository is up to date!");
+      }
+      updateStatusBar("$(check) Up to date", "Repository is up to date");
+    }
+  });
+}
+
+function checkForPotentialConflicts(workspacePath, commitCount, isManual) {
+  // Check for uncommitted changes
+  exec("git status --porcelain", { cwd: workspacePath }, (statusErr, statusStdout) => {
+    const hasUncommittedChanges = statusStdout && statusStdout.trim().length > 0;
+    
+    if (hasUncommittedChanges) {
+      // Check for potential conflicts with cross-platform approach
+      exec("git merge-base HEAD @{u}", { cwd: workspacePath }, (baseErr, baseStdout) => {
+        if (baseErr) {
+          // If we can't get merge base, just show pull notification
+          showPullNotification(commitCount, workspacePath);
+          return;
+        }
+        
+        const mergeBase = baseStdout.trim();
+        exec(`git merge-tree ${mergeBase} HEAD @{u}`, { cwd: workspacePath }, (mergeErr, mergeStdout) => {
+          const hasConflicts = mergeStdout && mergeStdout.trim().length > 0;
+          
+          if (hasConflicts) {
+            const message = `⚠️ ${commitCount} new commit${commitCount > 1 ? 's' : ''} available, but potential conflicts detected!`;
+            updateStatusBar(`$(warning) ${commitCount} commit${commitCount > 1 ? 's' : ''} (conflicts)`, `${commitCount} new commit${commitCount > 1 ? 's' : ''} with potential conflicts`, 'yellow');
+            
+            vscode.window.showWarningMessage(
+              message,
+              "Stash & Pull", "View Changes", "Pull Anyway", "Later"
+            ).then(selection => {
+              if (selection === "Stash & Pull") {
+                stashAndPull(workspacePath);
+              } else if (selection === "View Changes") {
+                vscode.commands.executeCommand('git.viewChanges');
+              } else if (selection === "Pull Anyway") {
+                pullChanges(workspacePath);
+              }
+            });
+          } else {
+            showPullNotification(commitCount, workspacePath);
+          }
+        });
+      });
+    } else {
+      showPullNotification(commitCount, workspacePath);
+    }
+  });
+}
+
+function showPullNotification(commitCount, workspacePath) {
+  const message = `🚨 Remote has ${commitCount} new commit${commitCount > 1 ? 's' : ''}. Pull now?`;
+  updateStatusBar(`$(arrow-down) ${commitCount} commit${commitCount > 1 ? 's' : ''}`, `${commitCount} new commit${commitCount > 1 ? 's' : ''} available`, 'orange');
+  
+  vscode.window.showInformationMessage(
+    message,
+    "Pull Now", "View Changes", "Later"
+  ).then(selection => {
+    if (selection === "Pull Now") {
+      pullChanges(workspacePath);
+    } else if (selection === "View Changes") {
+      vscode.commands.executeCommand('git.viewChanges');
+    }
+  });
+}
+
+function stashAndPull(workspacePath) {
+  updateStatusBar("$(sync~spin) Stashing & Pulling...", "Stashing changes and pulling from remote");
+  
+  exec("git stash push -m 'Auto-stash before pull'", { cwd: workspacePath }, (stashErr) => {
+    if (stashErr) {
+      showNotification(`Failed to stash: ${stashErr.message}`, 'error');
+      updateStatusBar("$(error) Stash failed", "Failed to stash changes", 'red');
+      return;
+    }
+    
+    exec("git pull", { cwd: workspacePath }, (pullErr, pullStdout, pullStderr) => {
+      if (pullErr) {
+        showNotification(`Failed to pull: ${pullStderr || pullErr.message}`, 'error');
+        updateStatusBar("$(error) Pull failed", "Failed to pull changes", 'red');
+        
+        // Try to restore stash
+        exec("git stash pop", { cwd: workspacePath }, () => {});
+      } else {
+        showNotification("✅ Successfully stashed and pulled changes!");
+        updateStatusBar("$(check) Stashed & Pulled", "Successfully stashed and pulled changes", 'green');
+        
+        // Ask if user wants to restore stash
+        vscode.window.showInformationMessage(
+          "Changes stashed and pull completed. Restore stashed changes?",
+          "Restore", "Keep Stashed"
+        ).then(selection => {
+          if (selection === "Restore") {
+            exec("git stash pop", { cwd: workspacePath }, (popErr) => {
+              if (popErr) {
+                showNotification("⚠️ Couldn't auto-restore stash. Check for conflicts.", 'warning');
+              } else {
+                showNotification("✅ Stashed changes restored!");
+              }
+            });
+          }
+        });
+        
+        // Reset to normal status after 5 seconds
+        setTimeout(() => {
+          updateStatusBar("$(repo) Git Pull Reminder", "Click to check for remote commits");
+        }, 5000);
+      }
     });
   });
 }
@@ -215,6 +399,35 @@ function activate(context) {
 
   context.subscriptions.push(configChangeListener);
 
+  // Activity tracking for smart timing
+  let activityTimeout;
+  
+  const activityTracker = vscode.workspace.onDidChangeTextDocument(() => {
+    lastActivityTime = Date.now();
+    isUserActive = true;
+    
+    // Clear existing timeout to prevent memory leaks
+    if (activityTimeout) {
+      clearTimeout(activityTimeout);
+    }
+    
+    // Reset activity flag after 60 seconds of inactivity
+    activityTimeout = setTimeout(() => {
+      if (Date.now() - lastActivityTime >= 60000) {
+        isUserActive = false;
+      }
+    }, 60000);
+  });
+
+  const focusTracker = vscode.window.onDidChangeWindowState((state) => {
+    if (state.focused) {
+      lastActivityTime = Date.now();
+      isUserActive = true;
+    }
+  });
+
+  context.subscriptions.push(activityTracker, focusTracker);
+
   // Initial check after 5 seconds
   setTimeout(() => {
     const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -229,6 +442,15 @@ function deactivate() {
   if (autoCheckInterval) {
     clearInterval(autoCheckInterval);
   }
+  
+  // Clean up status bar item
+  if (statusBarItem) {
+    statusBarItem.dispose();
+  }
+  
+  // Reset state variables
+  isAutoCheckEnabled = true;
+  isUserActive = false;
 }
 
 module.exports = { activate, deactivate };

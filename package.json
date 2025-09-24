@@ -2,8 +2,9 @@
   "name": "git-pull-reminder",
   "displayName": "Git Pull Reminder",
   "description": "Smart Git pull reminders with configurable intervals and status bar integration",
-  "version": "1.1.0",
-  "publisher": "your-name",
+  "version": "1.2.0",
+  "author": "Nazmul Hossain Adnan",
+  "publisher": "armstain",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -62,6 +63,31 @@
           "enum": ["info", "warning", "error"],
           "default": "info",
           "description": "Notification level for pull reminders"
+        },
+        "gitPullReminder.watchedBranches": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": ["main", "master", "develop"],
+          "description": "Only check for commits on these branches (empty array = all branches)"
+        },
+        "gitPullReminder.smartTiming": {
+          "type": "boolean",
+          "default": true,
+          "description": "Pause checks when actively typing to avoid interruptions"
+        },
+        "gitPullReminder.conflictDetection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Check for potential merge conflicts before suggesting pull"
+        },
+        "gitPullReminder.gitTimeout": {
+          "type": "number",
+          "default": 30,
+          "minimum": 5,
+          "maximum": 120,
+          "description": "Git command timeout in seconds (5-120)"
         }
       }
     }
