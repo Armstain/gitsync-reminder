@@ -34,21 +34,30 @@ function updateStatusBar(text, tooltip = '', color = '') {
   statusBarItem.show();
 }
 
-function showNotification(message, level = 'info') {
+function showNotification(message, level = 'info', timeoutMs = 5000) {
   const config = getConfig();
   const notificationLevel = config.get('notificationLevel', 'info');
-  
-  if (level === 'error' || (level === 'warning' && notificationLevel !== 'error') || notificationLevel === 'info') {
-    switch (level) {
-      case 'error':
-        vscode.window.showErrorMessage(message);
-        break;
-      case 'warning':
-        vscode.window.showWarningMessage(message);
-        break;
-      default:
-        vscode.window.showInformationMessage(message);
-    }
+
+  const shouldShow =
+    level === 'error' ||
+    (level === 'warning' && notificationLevel !== 'error') ||
+    notificationLevel === 'info';
+
+  if (!shouldShow) return;
+
+  // Keep errors as persistent popups
+  if (level === 'error') {
+    vscode.window.showErrorMessage(message);
+    return;
+  }
+
+  // For info/warning, show an ephemeral status bar message that auto-dismisses
+  // This avoids long-lived popup notifications while still informing the user.
+  try {
+    vscode.window.setStatusBarMessage(message, timeoutMs);
+  } catch (e) {
+    // Fallback to an information message if setStatusBarMessage is unavailable
+    vscode.window.showInformationMessage(message);
   }
 }
 
@@ -71,7 +80,7 @@ function checkForRemoteCommits(workspacePath, isManual = false) {
   }
 
   if (isManual) {
-    updateStatusBar("$(sync~spin) Checking...", "Checking for remote commits");
+    updateStatusBar("$(loading~spin) Checking...", "Checking for remote commits");
   }
 
   // First check if it's a git repository
@@ -123,9 +132,9 @@ function checkForRemoteCommits(workspacePath, isManual = false) {
                 const remoteDefault = symbolicStdout.trim().replace('refs/remotes/origin/', '');
                 if (remoteDefault && !watchedBranches.includes(remoteDefault)) {
                   watchedBranches = [...watchedBranches, remoteDefault];
-                  if (isManual) {
-                    showNotification(`Auto-detected remote default branch: '${remoteDefault}'`, 'info');
-                  }
+                  // Automatically update the config to persist this change
+                  config.update('watchedBranches', watchedBranches, vscode.ConfigurationTarget.Workspace);
+                  showNotification(` Now monitoring '${remoteDefault}' (auto-detected default branch)`, 'info');
                 }
                 checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, isManual);
               } else {
@@ -135,9 +144,9 @@ function checkForRemoteCommits(workspacePath, isManual = false) {
                     const headBranchMatch = remoteShowStdout.match(/HEAD branch:\s*(\S+)/);
                     if (headBranchMatch && headBranchMatch[1] && !watchedBranches.includes(headBranchMatch[1])) {
                       watchedBranches = [...watchedBranches, headBranchMatch[1]];
-                      if (isManual) {
-                        showNotification(`Auto-detected remote default branch: '${headBranchMatch[1]}'`, 'info');
-                      }
+                      // Automatically update the config to persist this change
+                      config.update('watchedBranches', watchedBranches, vscode.ConfigurationTarget.Workspace);
+                      showNotification(` Now monitoring '${headBranchMatch[1]}' (auto-detected default branch)`, 'info');
                     }
                   }
                   checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, isManual);
@@ -158,8 +167,21 @@ function checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, i
   
   if (watchedBranches.length > 0 && !watchedBranches.includes(currentBranch)) {
     if (isManual) {
-      showNotification(`Branch '${currentBranch}' is not being watched. Watched branches: ${watchedBranches.join(', ')}`, 'info');
-      updateStatusBar("$(info) Branch not watched", `Branch '${currentBranch}' is not in watched list`);
+      vscode.window.showInformationMessage(
+        `Branch '${currentBranch}' is not being monitored. Currently watching: ${watchedBranches.join(', ')}`,
+        "Add This Branch", "Settings"
+      ).then(selection => {
+        if (selection === "Add This Branch") {
+          const newWatchedBranches = [...watchedBranches, currentBranch];
+          config.update('watchedBranches', newWatchedBranches, vscode.ConfigurationTarget.Workspace);
+          showNotification(`Now monitoring branch '${currentBranch}'`, 'info');
+          // Re-run the check now that the branch is watched
+          setTimeout(() => checkForRemoteCommits(workspacePath, false), 1000);
+        } else if (selection === "Settings") {
+          vscode.commands.executeCommand('workbench.action.openSettings', 'gitPullReminder.watchedBranches');
+        }
+      });
+      updateStatusBar("$(bell-slash) Not monitoring", `Branch '${currentBranch}' is not in watched list`);
     }
     return;
   }
@@ -183,9 +205,9 @@ function checkBranchAndContinue(currentBranch, watchedBranches, workspacePath, i
       }
     } else {
       if (isManual) {
-        showNotification("✅ Repository is up to date!");
+        showNotification(" Repository is up to date!");
       }
-      updateStatusBar("$(check) Up to date", "Repository is up to date");
+      updateStatusBar("$(check) All caught up", "Repository is up to date");
     }
   });
 }
@@ -209,8 +231,8 @@ function checkForPotentialConflicts(workspacePath, commitCount, isManual) {
           const hasConflicts = mergeStdout && mergeStdout.trim().length > 0;
           
           if (hasConflicts) {
-            const message = `⚠️ ${commitCount} new commit${commitCount > 1 ? 's' : ''} available, but potential conflicts detected!`;
-            updateStatusBar(`$(warning) ${commitCount} commit${commitCount > 1 ? 's' : ''} (conflicts)`, `${commitCount} new commit${commitCount > 1 ? 's' : ''} with potential conflicts`, 'yellow');
+            const message = ` ${commitCount} new commit${commitCount > 1 ? 's' : ''} available, but potential conflicts detected!`;
+            updateStatusBar(`$(alert) ${commitCount} commit${commitCount > 1 ? 's' : ''} (conflicts ahead)`, `${commitCount} new commit${commitCount > 1 ? 's' : ''} with potential conflicts`, 'yellow');
             
             vscode.window.showWarningMessage(
               message,
@@ -236,8 +258,8 @@ function checkForPotentialConflicts(workspacePath, commitCount, isManual) {
 }
 
 function showPullNotification(commitCount, workspacePath) {
-  const message = `🚨 Remote has ${commitCount} new commit${commitCount > 1 ? 's' : ''}. Pull now?`;
-  updateStatusBar(`$(arrow-down) ${commitCount} commit${commitCount > 1 ? 's' : ''}`, `${commitCount} new commit${commitCount > 1 ? 's' : ''} available`, 'orange');
+  const message = ` Remote has ${commitCount} new commit${commitCount > 1 ? 's' : ''}. Pull now?`;
+  updateStatusBar(`$(download) Pull ${commitCount} commit${commitCount > 1 ? 's' : ''}`, `${commitCount} new commit${commitCount > 1 ? 's' : ''} available`, 'orange');
   
   vscode.window.showInformationMessage(
     message,
@@ -252,7 +274,7 @@ function showPullNotification(commitCount, workspacePath) {
 }
 
 function stashAndPull(workspacePath) {
-  updateStatusBar("$(sync~spin) Stashing & Pulling...", "Stashing changes and pulling from remote");
+  updateStatusBar("$(download~spin) Stashing & Pulling...", "Stashing changes and pulling from remote");
   
   exec("git stash push -m 'Auto-stash before pull'", { cwd: workspacePath }, (stashErr) => {
     if (stashErr) {
@@ -269,7 +291,7 @@ function stashAndPull(workspacePath) {
         // Try to restore stash
         exec("git stash pop", { cwd: workspacePath }, () => {});
       } else {
-        showNotification("✅ Successfully stashed and pulled changes!");
+        showNotification(" Successfully stashed and pulled changes!");
         updateStatusBar("$(check) Stashed & Pulled", "Successfully stashed and pulled changes", 'green');
         
         // Ask if user wants to restore stash
@@ -280,9 +302,9 @@ function stashAndPull(workspacePath) {
           if (selection === "Restore") {
             exec("git stash pop", { cwd: workspacePath }, (popErr) => {
               if (popErr) {
-                showNotification("⚠️ Couldn't auto-restore stash. Check for conflicts.", 'warning');
+                showNotification(" Couldn't auto-restore stash. Check for conflicts.", 'warning');
               } else {
-                showNotification("✅ Stashed changes restored!");
+                showNotification(" Stashed changes restored!");
               }
             });
           }
@@ -298,14 +320,14 @@ function stashAndPull(workspacePath) {
 }
 
 function pullChanges(workspacePath) {
-  updateStatusBar("$(sync~spin) Pulling...", "Pulling changes from remote");
+  updateStatusBar("$(download~spin) Pulling changes...", "Pulling changes from remote");
   
   exec("git pull", { cwd: workspacePath }, (err, stdout, stderr) => {
     if (err) {
       showNotification(`Failed to pull: ${stderr || err.message}`, 'error');
       updateStatusBar("$(error) Pull failed", "Failed to pull changes", 'red');
     } else {
-      showNotification("✅ Successfully pulled changes!");
+      showNotification(" Successfully pulled changes!");
       updateStatusBar("$(check) Pulled", "Successfully pulled changes", 'green');
       
       // Reset to normal status after 3 seconds

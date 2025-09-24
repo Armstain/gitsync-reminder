@@ -2,6 +2,22 @@
 
 All notable changes to the "Git Pull Reminder" extension will be documented in this file.
 
+## [1.2.2] - 2025-09-24
+
+### Changed
+- **Ephemeral Notifications**: Info and warning notifications now appear as brief status-bar messages that auto-dismiss after 5 seconds to reduce persistent popups. Error messages remain persistent.
+
+## [1.2.1] - 2024-09-24
+
+### Changed
+- **Improved Status Messages**: Updated status bar text to be more user-friendly and intuitive
+  - "Up to date" → "All caught up" 
+  - "Branch not watched" → "Not monitoring"
+  - "3 commits" → "Pull 3 commits"
+  - "3 commits (conflicts)" → "3 commits (conflicts ahead)"
+  - "Checking..." → "Checking..." (with loading icon)
+  - "Pulling..." → "Pulling changes..."
+
 ## [1.2.0] - 2024-09-24
 
 ### Added
