@@ -89,6 +89,12 @@
           "maximum": 120,
           "description": "Git command timeout in seconds (5-120)"
         }
+        ,
+        "gitPullReminder.autoAddDetectedDefaultBranch": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically add the remote default branch to watchedBranches when detected"
+        }
       }
     }
   },

@@ -1,6 +1,22 @@
 # Change Log
 
-All notable changes to the "Git Pull Reminder" extension will be documented in this file.
+
+
+## [1.2.3] - 2025-11-30
+### Added
+- Refactored extension to use async/await for cleaner logic.
+- New status bar display showing both incoming (↓) and outgoing (↑) commit counts.
+- Smart timing logic retained for non‑intrusive checks.
+- Improved conflict detection workflow.
+- Added detailed notifications with optional snooze (future improvement).
+
+### Fixed
+- Correct handling of workspace path when no remote is configured.
+- Minor UI text inconsistencies.
+
+### Changed
+- Updated internal command execution to use `util.promisify`.
+- Streamlined configuration handling.
 
 ## [1.2.2] - 2025-09-24
 
