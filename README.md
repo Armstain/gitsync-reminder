@@ -63,21 +63,6 @@ Open VS Code settings and search for "Git Pull Reminder" to configure:
 4. Click "..." menu and select "Install from VSIX..."
 5. Select the downloaded `.vsix` file
 
-## Release Notes
-
-### 1.1.0
-
-- Added status bar integration
-- Configurable check intervals
-- Better error handling and user feedback
-- Multiple notification levels
-- One-click pull functionality
-- Toggle auto-check feature
-
-### 1.0.0
-
-- Initial release with basic pull reminder functionality
-
 ## Contributing
 
 Found a bug or have a feature request? Please open an issue on the project repository.
